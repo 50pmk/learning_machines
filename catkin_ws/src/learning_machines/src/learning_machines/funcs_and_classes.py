@@ -24,6 +24,9 @@ class GymEnv(gym.Env):
         assert render_mode is None
         assert rob != False 
         self.rob = rob
+        # Initialize step counter
+        self.step_count = 0
+        self.max_steps = 100  # Maximum number of steps per episode
 
         # Define action space: two continuous values for left and right wheel speeds
         self.action_space = gym.spaces.Box(low=np.array([-100, -100]), high=np.array([100, 100]), dtype=np.float32)
@@ -73,7 +76,8 @@ class GymEnv(gym.Env):
 
         # Take the action
         self._move(action)
-
+        # Increment step count
+        self.step_count += 1
         observation = self._get_obs()
         info = self._get_info()
 
@@ -83,9 +87,10 @@ class GymEnv(gym.Env):
             reward -= 10
 
         # TODO
-        terminated = 0
+        # terminated = 0
         # TODO early termination if max distance has been found
-
+        # Determine if the episode is terminated based on the number of steps
+        terminated = self.step_count >= self.max_steps
         print(observation)
         print(reward)
 
