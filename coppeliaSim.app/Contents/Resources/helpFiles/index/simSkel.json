@@ -1,0 +1,9 @@
+{
+    "simSkel": {
+        "createObject": "simSkel.htm#createObject",
+        "destroyObject": "simSkel.htm#destroyObject",
+        "setData": "simSkel.htm#setData",
+        "compute": "simSkel.htm#compute",
+        "getOutput": "simSkel.htm#getOutput"
+    }
+}
