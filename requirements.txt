@@ -7,3 +7,6 @@ pandas
 gymnasium
 torch
 stable_baselines3
+stable-baselines3[extra]
+tdqm
+rich
