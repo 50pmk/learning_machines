@@ -38,8 +38,8 @@ class GymEnv(gym.Env):
         self.action_space = gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
 
         # Define observation space 
-        # TODO: change depending on what information we want to use 
-        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(8,), dtype=np.float32)
+        # NOTE: currently state space is 3 states: left, middle & right camera mask percentages 
+        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(3,), dtype=np.float32)
 
         # Initialise for logging
         self.log_irsdata = []
@@ -67,7 +67,7 @@ class GymEnv(gym.Env):
         # Ensure that the image is retrieved correctly and is in BGR format initially
         if bgr_image is None:
             print("No image received from the camera.")
-            return "false"
+            return False 
         
         # Convert the BGR image to HSV format
         hsv_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
@@ -86,11 +86,12 @@ class GymEnv(gym.Env):
         greenVal = float(np.sum(mask > 0)) / float(mask.size)
         # Determine if green is detected
         if greenVal > 0.01:  # Adjust threshold as needed
-            green = "true"
+            green = 1
         else:
-            green = "false"
+            green = 0
 
-        return green, greenVal
+        # return green 
+        return greenVal 
     
     def _normalize_irs(self, irs) -> np.array:
         clipped_arr = np.clip(irs, 0, 1400)
@@ -122,15 +123,15 @@ class GymEnv(gym.Env):
         width = bgr_image.shape[1] // 3
         left_image, middle_image, right_image  = bgr_image[:, :width, :], bgr_image[:, width:2*width, :], bgr_image[:, 2*width:, :]
 
-        left, left_percent = self._process_front_camera(left_image)
-        middle, middle_percent = self._process_front_camera(middle_image)
-        right, right_percent = self._process_front_camera(right_image)
+        left = self._process_front_camera(left_image)
+        middle = self._process_front_camera(middle_image)
+        right = self._process_front_camera(right_image)
  
         # visualization 
         # _, _ = self._process_front_camera(bgr_image, save_images=True)
 
-        # returns percentage of pixels covered by the green mask 
-        obs_camera = np.array([left_percent, middle_percent, right_percent])
+        # returns precense or percentage of pixels covered by the green mask 
+        obs_camera = np.array([left, middle, right])
 
         return obs_irs, obs_camera 
 
@@ -186,8 +187,8 @@ class GymEnv(gym.Env):
         self.step_count = 0
 
         obs_irs, obs_camera = self._get_obs()
+        observation = obs_camera
 
-        observation = obs_irs
         info = self._get_info()
 
         return observation, info
@@ -202,14 +203,11 @@ class GymEnv(gym.Env):
 
         obs_irs, obs_camera = self._get_obs()
 
-        print(obs_camera)
+        # the observation we return depends on what our observation space is, for now it's just irs (change)
+        observation = obs_camera
+        print('observation', observation)
 
-
-        # the observation we return depends on what our observation space is, for not it's just irs (change)
-        observation = obs_irs 
-
-        # REWARD COMPONENT - TODO 
-        reward = self._get_reward()
+        reward = 0 
 
         # Increment step 
         self.cum_reward += reward
