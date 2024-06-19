@@ -53,7 +53,6 @@ class GymEnv(gym.Env):
 
 
     def _set_camera(self, horizontal_pan=180, vertical_tilt=67):
-        print('before')
         print("Setting Camera: ")
         self.rob.set_phone_pan_blocking(horizontal_pan, 100) 
         self.rob.set_phone_tilt_blocking(vertical_tilt, 100) 
@@ -63,14 +62,13 @@ class GymEnv(gym.Env):
         print("vertical tilt:", self.rob.read_phone_tilt())
         
 
-    def _process_front_camera(self, bgr_image):
+    def _process_front_camera(self, bgr_image, save_images=False):
         # Get the image from the front camera
         # Ensure that the image is retrieved correctly and is in BGR format initially
         if bgr_image is None:
             print("No image received from the camera.")
             return "false"
         
-        # cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_{self.step_count}.png'), bgr_image)
         # Convert the BGR image to HSV format
         hsv_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
         # Define HSV range for green color
@@ -79,8 +77,10 @@ class GymEnv(gym.Env):
         # Threshold the HSV image to get only green colors
         mask = cv2.inRange(hsv_image, lower_green, upper_green)
 
-        # visualization 
-        # cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_mask_{self.step_count}.png'), mask)
+        # visualizations
+        if save_images:
+            cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_{self.step_count}.png'), bgr_image)
+            cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_mask_{self.step_count}.png'), mask)
 
         # Calculate the proportion of green in the image
         greenVal = float(np.sum(mask > 0)) / float(mask.size)
@@ -91,6 +91,11 @@ class GymEnv(gym.Env):
             green = "false"
 
         return green, greenVal
+    
+    def _normalize_irs(self, irs) -> np.array:
+        clipped_arr = np.clip(irs, 0, 1400)
+        normalized_arr = clipped_arr / 1400.0
+        return normalized_arr
 
 
     def _move(self, action):
@@ -108,7 +113,7 @@ class GymEnv(gym.Env):
     def _get_obs(self):
         # -- irs component -- 
         obs_irs = self.rob.read_irs()
-        # normalize? 
+        obs_irs = self._normalize_irs(obs_irs)
 
         # -- camera component -- 
         bgr_image = self.rob.get_image_front()
@@ -120,6 +125,9 @@ class GymEnv(gym.Env):
         left, left_percent = self._process_front_camera(left_image)
         middle, middle_percent = self._process_front_camera(middle_image)
         right, right_percent = self._process_front_camera(right_image)
+ 
+        # visualization 
+        # _, _ = self._process_front_camera(bgr_image, save_images=True)
 
         # returns percentage of pixels covered by the green mask 
         obs_camera = np.array([left_percent, middle_percent, right_percent])
@@ -129,7 +137,7 @@ class GymEnv(gym.Env):
     def _get_reward(self): 
         # TODO 
         reward = 0
-        return 
+        return reward
 
     def _get_info(self):
         return {'dummy_info': 0}
@@ -172,12 +180,14 @@ class GymEnv(gym.Env):
         # self._spin_at_episode_start()
 
         # set camera position at the start 
-        self.set_camera(horizontal_pan=180, vertical_tilt=90)
+        self._set_camera(horizontal_pan=180, vertical_tilt=90)
 
         # Initialize step counter
         self.step_count = 0
 
-        observation = self._get_obs()
+        obs_irs, obs_camera = self._get_obs()
+
+        observation = obs_irs
         info = self._get_info()
 
         return observation, info
@@ -192,8 +202,11 @@ class GymEnv(gym.Env):
 
         obs_irs, obs_camera = self._get_obs()
 
-        # the observation we return depends on what our observation space is 
-        observation = ... 
+        print(obs_camera)
+
+
+        # the observation we return depends on what our observation space is, for not it's just irs (change)
+        observation = obs_irs 
 
         # REWARD COMPONENT - TODO 
         reward = self._get_reward()
@@ -211,116 +224,6 @@ class GymEnv(gym.Env):
         return observation, reward, terminated, False, info
 
 
-
-
-
-def test_emotions(rob: IRobobo):
-    rob.set_emotion(Emotion.HAPPY)
-    rob.talk("Hello")
-    rob.play_emotion_sound(SoundEmotion.PURR)
-    rob.set_led(LedId.FRONTCENTER, LedColor.GREEN)
-
-
-def test_move_and_wheel_reset(rob: IRobobo):
-    rob.move_blocking(100, 100, 1000)
-    print("before reset: ", rob.read_wheels())
-    rob.reset_wheels()
-    rob.sleep(1)
-    print("after reset: ", rob.read_wheels())
-
-
-def test_sensors(rob: IRobobo):
-    print("IRS data: ", rob.read_irs())
-    image = rob.get_image_front()
-    cv2.imwrite(str(FIGRURES_DIR / "photo.png"), image)
-    print("Phone pan: ", rob.read_phone_pan())
-    print("Phone tilt: ", rob.read_phone_tilt())
-    print("Current acceleration: ", rob.read_accel())
-    print("Current orientation: ", rob.read_orientation())
-
-
-def test_phone_movement(rob: IRobobo):
-    rob.set_phone_pan_blocking(20, 100)
-    print("Phone pan after move to 20: ", rob.read_phone_pan())
-    rob.set_phone_tilt_blocking(50, 100)
-    print("Phone tilt after move to 50: ", rob.read_phone_tilt())
-
-
-def test_sim(rob: SimulationRobobo):
-    print(rob.get_sim_time())
-    print(rob.is_running())
-    rob.stop_simulation()
-    print(rob.get_sim_time())
-    print(rob.is_running())
-    rob.play_simulation()
-    print(rob.get_sim_time())
-    print(rob.get_position())
-
-
-def test_hardware(rob: HardwareRobobo):
-    print("Phone battery level: ", rob.read_phone_battery())
-    print("Robot battery level: ", rob.read_robot_battery())
-
-
-def run_all_actions(rob: IRobobo):
-    if isinstance(rob, SimulationRobobo):
-        rob.play_simulation()
-    test_emotions(rob)
-    test_sensors(rob)
-    test_move_and_wheel_reset(rob)
-    if isinstance(rob, SimulationRobobo):
-        test_sim(rob)
-
-    if isinstance(rob, HardwareRobobo):
-        test_hardware(rob)
-
-    test_phone_movement(rob)
-
-    if isinstance(rob, SimulationRobobo):
-        rob.stop_simulation()
-
-
-def test(rob: IRobobo):
-    # Start the simulation
-    if isinstance(rob, SimulationRobobo):
-        rob.play_simulation()
-
-    for _ in range(100):
-
-        rob.move_blocking(100, 0, 250)
-
-    # Stop simulation
-    if isinstance(rob, SimulationRobobo):
-        rob.stop_simulation()
-
-
-def task0(rob: IRobobo):
-    # Start the simulation
-    if isinstance(rob, SimulationRobobo):
-        rob.play_simulation()
-
-    # If sensor sees something: turn right, if not: straight ahead
-    for _ in range(15):
-
-        # Somehow the first value for read_irs() in the simulation is always [inf, inf, ...]
-        # so the first value is hard_set to 0
-        if _ == 0:
-            irs = [0,0,0]
-        else:
-            # Read FrontL, FrontR, FrontC infrared sensor
-            irs = rob.read_irs()[2:5]
-
-        print(irs)
-
-        # Turn right or move straight
-        if max(irs) > 100:
-            rob.move_blocking(50, -100, 250)
-        else:
-            rob.move_blocking(50, 50, 100)
-
-    # Stop simulation
-    if isinstance(rob, SimulationRobobo):
-        rob.stop_simulation()
 
 
 def task1(rob: IRobobo):
