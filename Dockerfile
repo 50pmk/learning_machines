@@ -14,6 +14,9 @@ RUN apt-get update -y && apt-get install -y python3 python3-pip git && rm -rf /v
 RUN apt-get update -y && apt-get install ffmpeg libsm6 libxext6 ros-noetic-opencv-apps dos2unix -y && rm -rf /var/lib/apt/lists/*
 
 # The python3 interpreter is already being shilled by ros:noetic, so no need for a venv.
+RUN python3 -m pip install networkx==3.1
+RUN python3 -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
 COPY ./requirements.txt /requirements.txt
 RUN python3 -m pip install -r /requirements.txt && rm /requirements.txt
 

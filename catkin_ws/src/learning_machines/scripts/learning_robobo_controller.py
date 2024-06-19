@@ -2,7 +2,7 @@
 import sys
 
 from robobo_interface import SimulationRobobo, HardwareRobobo
-from learning_machines import task1, test
+from learning_machines import task1, test, calibrate, validate_task1, task2
 
 
 if __name__ == "__main__":
@@ -19,4 +19,5 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"{sys.argv[1]} is not a valid argument.")
 
-    task1(rob)
+    task2(rob)
+    # calibrate(rob)

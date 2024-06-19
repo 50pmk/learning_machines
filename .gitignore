@@ -190,9 +190,13 @@ dmypy.json
 
 # Where we are installing CoppeliaSim
 CoppeliaSim/
+CoppeliaSim
+coppeliaSim
 coppeliaSim.app/
 coppeliaSim.app/Contents
 CoppeliaSim.tar.xz
+coppeliaSim.app/Contents/Frameworks
+coppeliaSim.app/Contents/MacOS
 
 # macOS stuff
 .DS_Store
