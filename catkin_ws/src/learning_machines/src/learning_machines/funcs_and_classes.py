@@ -1,6 +1,7 @@
 import cv2
 import pandas as pd
 from data_files import FIGRURES_DIR, RESULT_DIR
+import os 
 from robobo_interface import (
     IRobobo,
     Emotion,
@@ -50,6 +51,15 @@ class GymEnv(gym.Env):
         self.total_timesteps_in_learn = 5000
 
         self.cum_reward = 0
+        self.food_count = 0
+
+        # --- LOGGING ---
+        self.log_df = pd.DataFrame(columns=['episode reward', 'total food'])
+        print(self.log_df)
+
+        # # TODO - remove later 
+        # with open(str(RESULT_DIR / 'log/cum_reward.txt'), 'w') as f:
+        #     f.write(f'{self.cum_reward}\n')
 
 
     def _set_camera(self, horizontal_pan=180, vertical_tilt=67):
@@ -90,8 +100,8 @@ class GymEnv(gym.Env):
         else:
             green = 0
 
-        # return green 
-        return greenVal 
+        return green 
+        # return greenVal 
     
     def _normalize_irs(self, irs) -> np.array:
         clipped_arr = np.clip(irs, 0, 1400)
@@ -102,6 +112,8 @@ class GymEnv(gym.Env):
     def _move(self, action):
         '''
         action is a 1D-array in range [0,1]
+            low action -> turn right 
+            high action -> turn left 
         '''
         v_min=0 
         v_max=100
@@ -130,15 +142,11 @@ class GymEnv(gym.Env):
         # visualization 
         # _, _ = self._process_front_camera(bgr_image, save_images=True)
 
-        # returns precense or percentage of pixels covered by the green mask 
+        # returns presence or percentage of pixels covered by the green mask 
         obs_camera = np.array([left, middle, right])
 
         return obs_irs, obs_camera 
 
-    def _get_reward(self): 
-        # TODO 
-        reward = 0
-        return reward
 
     def _get_info(self):
         return {'dummy_info': 0}
@@ -146,24 +154,11 @@ class GymEnv(gym.Env):
     def _spin_at_episode_start(self):
         random_amount = np.random.randint(0, 1001)
         self.rob.move_blocking(100, -100, random_amount)
-
-    def _calculate_max_distance(self):
-        if len(self.visited_positions) < 2:
-            return 0.0
-        # Calculate the pairwise differences
-        diffs = self.visited_positions[:, np.newaxis, :] - self.visited_positions[np.newaxis, :, :]
-        # Compute the Euclidean distances
-        distances = np.sqrt(np.sum(diffs**2, axis=-1))
-        # Find the maximum distance
-        max_distance = np.max(distances)
-        return max_distance
     
     
     def reset(self, seed=None, options=None):
         # This line is probably needed but does nothing
         super().reset(seed=seed)
-
-        self.cum_reward = 0 
 
         if isinstance(self.rob, SimulationRobobo):
             if self.rob.is_running():
@@ -174,24 +169,72 @@ class GymEnv(gym.Env):
             self.rob.talk("put me down")
             self.rob.sleep(5)
 
-        # For maximizing explored distance reward method
-        self.visited_positions = np.array([[self.rob.get_position().x, self.rob.get_position().y]])
-        self.best_distance = 0
-
-        # self._spin_at_episode_start()
-
         # set camera position at the start 
         self._set_camera(horizontal_pan=180, vertical_tilt=90)
-
-        # Initialize step counter
-        self.step_count = 0
-
         obs_irs, obs_camera = self._get_obs()
         observation = obs_camera
 
         info = self._get_info()
 
+        # --- LOGGING --- 
+
+        episode_logs = {
+            'episode reward': [self.cum_reward],
+            'total food': [self.food_count]
+        }
+        new_row = pd.DataFrame(episode_logs)
+
+        self.log_df = pd.concat([self.log_df, new_row], ignore_index=True)
+        
+        if not os.path.exists(os.path.join(RESULT_DIR, 'log')):
+            os.makedirs(os.path.join(RESULT_DIR, 'log'))
+        # save at each episode 
+        self.log_df.to_csv(str(RESULT_DIR / 'log/episode_logs.csv'), index=False)
+
+        # re-initialize 
+        self.step_count = 0
+        self.cum_reward = 0 
+
         return observation, info
+    
+
+    def _get_reward(self, observation, action): 
+
+        print('observation:', observation)
+        print('action:', action)
+
+        l, m, r = observation
+
+        reward = 0 
+
+        # if object detected only on left side
+        if l == 1 and not m == 1: 
+            # if robot turns left 
+            if action > 0.5: 
+                reward += 1 
+
+        # if object detected in middle 
+        elif m == 1:
+            # if robot stays relatively straight 
+            if 0.45 < action < 0.55:
+                reward += 10
+        
+        # if object detected only on right side
+        elif r == 1 and not m == 1:
+            # if robot turns right 
+            if action < 0.5: 
+                reward += 1
+
+        else: 
+            # promote spinning to detect objects? -> NOTE: seems to do that on it's own 
+            pass 
+
+        # if food is collected 
+        if self.rob.nr_food_collected() > self.food_count: 
+            reward += 50
+            print('found food!')
+
+        return reward
     
 
     def step(self, action):
@@ -200,23 +243,28 @@ class GymEnv(gym.Env):
 
         # Take the action
         self._move(action)
-
+        # get state information 
         obs_irs, obs_camera = self._get_obs()
 
-        # the observation we return depends on what our observation space is, for now it's just irs (change)
+        # observation is the bool states of each camera green mask: left, middle, right 
         observation = obs_camera
-        print('observation', observation)
 
-        reward = 0 
+        reward = self._get_reward(observation, action)
+            
+        print('observation:', observation)
+        print('action:', action)
+        print('reward:', reward)
 
-        # Increment step 
+        # tracking metrics metrics 
+        self.total_steps += 1 
         self.cum_reward += reward
-        self.step_count += 1
-        self.total_steps += 1 # Only for logging
-        
+        self.food_count = self.rob.nr_food_collected()
+        self.step_count += 1        
         # Determine if the episode is terminated based on the number of steps
         terminated = self.step_count >= self.max_steps
 
+
+        # --- LOGGING ---
 
         # Output index 3 has to be False, because it is a deprecated feature
         return observation, reward, terminated, False, info
@@ -280,7 +328,7 @@ def task2(rob: IRobobo):
         _init_setup_model=True
     )
 
-    model.learn(total_timesteps=10, log_interval=10, progress_bar=True)
+    model.learn(total_timesteps=5000, log_interval=10, progress_bar=True)
     
     # model.save(str(RESULT_DIR / 'models/run_1'))
 
