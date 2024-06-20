@@ -17,6 +17,7 @@ import csv
 import gymnasium as gym
 from stable_baselines3 import DDPG
 from stable_baselines3.common.noise import NormalActionNoise
+import os
 
 class GymEnv(gym.Env):
 
@@ -24,13 +25,16 @@ class GymEnv(gym.Env):
     metadata = {"render_modes": ["dummy"]}
 
 
-    def __init__(self, render_mode=None, rob=IRobobo, max_steps=100):
+    def __init__(self, render_mode=None, rob=IRobobo, max_steps=100, model_name=None):
         super(GymEnv, self).__init__()
 
-
+        
+        assert model_name != None
         assert render_mode is None
         assert rob != False 
         self.rob = rob
+
+        self.model_name = model_name
 
         # Maximum number of steps per episode
         self.max_steps = max_steps
@@ -49,7 +53,6 @@ class GymEnv(gym.Env):
         self.log_collision = []
         self.log_actions = []
         self.total_steps = 0
-        self.total_timesteps_in_learn = 5000
 
         self.cum_reward = 0
         self.food_count = 0
@@ -123,6 +126,15 @@ class GymEnv(gym.Env):
         left_speed = v_min + (v_max - v_min) * (1 - action)
         right_speed = v_min + (v_max - v_min) * action
         self.rob.move_blocking(left_speed[0], right_speed[0], 100)
+
+        # # Alternative quicker speeds, trains longer, runs into wall issues
+        # if action < 0.5:
+        #     left_speed = 100
+        #     right_speed = -20 + 100 * action[0] * 2 * 1.2
+        # else:
+        #     left_speed = -20 + 100 * (1 - action[0]) * 2 * 1.2
+        #     right_speed = 100
+        # self.rob.move_blocking(left_speed, right_speed, 100)
 
         
     def _get_obs(self):
@@ -232,11 +244,13 @@ class GymEnv(gym.Env):
         if not os.path.exists(os.path.join(RESULT_DIR, 'log')):
             os.makedirs(os.path.join(RESULT_DIR, 'log'))
         # save at each episode 
-        self.log_df.to_csv(str(RESULT_DIR / 'log/episode_logs.csv'), index=False)
+        self.log_df.to_csv(str(RESULT_DIR / f'log/{self.model_name}.csv'), index=False)
 
-        # re-initialize 
+        # re-initialize
         self.step_count = 0
         self.cum_reward = 0 
+
+        print()
 
         return observation, info
 
@@ -275,7 +289,7 @@ class GymEnv(gym.Env):
 
 
 def task1(rob: IRobobo):
-
+    
     model = DDPG(
         policy = 'MlpPolicy', 
         env = GymEnv(rob=rob, max_steps=100), 
@@ -309,10 +323,11 @@ def validate_task1(rob: IRobobo):
     model = DDPG.load(str(RESULT_DIR / 'models/run_2c')) 
 
     env = GymEnv()
-    obs = env.reset()[0]
+    obs = env.reset()[0][1]
     while True:
         action, states = model.predict(obs)
         observation, reward, terminated, _, info = env.step(action)
+        obs = observation[1]
 
 
 def task2(rob: IRobobo, model_name=None):
@@ -321,7 +336,7 @@ def task2(rob: IRobobo, model_name=None):
 
     model = DDPG(
         policy = 'MlpPolicy', 
-        env = GymEnv(rob=rob, max_steps=100), 
+        env = GymEnv(rob=rob, max_steps=100, model_name=model_name), 
         learning_rate=0.0001, 
         buffer_size=50000, 
         learning_starts=100, 
@@ -343,7 +358,13 @@ def task2(rob: IRobobo, model_name=None):
         _init_setup_model=True
     )
 
-    model.learn(total_timesteps=5000, log_interval=10, progress_bar=True) # change back to 5000
+    model.learn(total_timesteps=4000, log_interval=10, progress_bar=True) # change back to 5000
+    
+    file_path = RESULT_DIR / f'models/{model_name}'
+
+    # Check if the file already exists
+    if os.path.exists(file_path):
+        raise FileExistsError(f"The model '{model_name}' already exists at {file_path}")
     
     model.save(str(RESULT_DIR / f'models/{model_name}'))
 
@@ -358,7 +379,7 @@ def task2_demonstrate(rob: IRobobo, steps=100000, model_name=None):
 
     for _ in range(steps):
         action, states = model.predict(obs)
-        observation, reward, terminated, _, info = env.step(action)
+        obs, reward, terminated, _, info = env.step(action)
 
 
 def calibrate(rob: IRobobo):
