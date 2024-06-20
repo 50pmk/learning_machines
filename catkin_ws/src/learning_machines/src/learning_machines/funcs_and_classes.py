@@ -23,6 +23,7 @@ class GymEnv(gym.Env):
     # We don't need metadata, but the superclass wants to see it
     metadata = {"render_modes": ["dummy"]}
 
+
     def __init__(self, render_mode=None, rob=IRobobo, max_steps=100):
         super(GymEnv, self).__init__()
 
@@ -103,6 +104,7 @@ class GymEnv(gym.Env):
         return green 
         # return greenVal 
     
+
     def _normalize_irs(self, irs) -> np.array:
         clipped_arr = np.clip(irs, 0, 1400)
         normalized_arr = clipped_arr / 1400.0
@@ -151,51 +153,10 @@ class GymEnv(gym.Env):
     def _get_info(self):
         return {'dummy_info': 0}
 
+
     def _spin_at_episode_start(self):
         random_amount = np.random.randint(0, 1001)
         self.rob.move_blocking(100, -100, random_amount)
-    
-    
-    def reset(self, seed=None, options=None):
-        # This line is probably needed but does nothing
-        super().reset(seed=seed)
-
-        if isinstance(self.rob, SimulationRobobo):
-            if self.rob.is_running():
-                self.rob.stop_simulation()
-            
-            self.rob.play_simulation()
-        else:
-            self.rob.talk("put me down")
-            self.rob.sleep(5)
-
-        # set camera position at the start 
-        self._set_camera(horizontal_pan=180, vertical_tilt=90)
-        obs_irs, obs_camera = self._get_obs()
-        observation = obs_camera
-
-        info = self._get_info()
-
-        # --- LOGGING --- 
-
-        episode_logs = {
-            'episode reward': [self.cum_reward],
-            'total food': [self.food_count]
-        }
-        new_row = pd.DataFrame(episode_logs)
-
-        self.log_df = pd.concat([self.log_df, new_row], ignore_index=True)
-        
-        if not os.path.exists(os.path.join(RESULT_DIR, 'log')):
-            os.makedirs(os.path.join(RESULT_DIR, 'log'))
-        # save at each episode 
-        self.log_df.to_csv(str(RESULT_DIR / 'log/episode_logs.csv'), index=False)
-
-        # re-initialize 
-        self.step_count = 0
-        self.cum_reward = 0 
-
-        return observation, info
     
 
     def _get_reward(self, observation, action): 
@@ -237,6 +198,49 @@ class GymEnv(gym.Env):
         return reward
     
 
+    def reset(self, seed=None, options=None):
+        # This line is probably needed but does nothing
+        super().reset(seed=seed)
+
+        if isinstance(self.rob, SimulationRobobo):
+            if self.rob.is_running():
+                self.rob.stop_simulation()
+            
+            self.rob.play_simulation()
+        else:
+            # self.rob.talk("episode starts in five")
+            # self.rob.sleep(5)
+            pass
+
+        # set camera position at the start 
+        self._set_camera(horizontal_pan=180, vertical_tilt=90)
+        obs_irs, obs_camera = self._get_obs()
+        observation = obs_camera
+
+        info = self._get_info()
+
+        # --- LOGGING --- 
+
+        episode_logs = {
+            'episode reward': [self.cum_reward],
+            'total food': [self.food_count]
+        }
+        new_row = pd.DataFrame(episode_logs)
+
+        self.log_df = pd.concat([self.log_df, new_row], ignore_index=True)
+        
+        if not os.path.exists(os.path.join(RESULT_DIR, 'log')):
+            os.makedirs(os.path.join(RESULT_DIR, 'log'))
+        # save at each episode 
+        self.log_df.to_csv(str(RESULT_DIR / 'log/episode_logs.csv'), index=False)
+
+        # re-initialize 
+        self.step_count = 0
+        self.cum_reward = 0 
+
+        return observation, info
+
+
     def step(self, action):
 
         info = self._get_info()
@@ -260,16 +264,14 @@ class GymEnv(gym.Env):
         self.cum_reward += reward
         self.food_count = self.rob.nr_food_collected()
         self.step_count += 1        
+
         # Determine if the episode is terminated based on the number of steps
         terminated = self.step_count >= self.max_steps
-
 
         # --- LOGGING ---
 
         # Output index 3 has to be False, because it is a deprecated feature
         return observation, reward, terminated, False, info
-
-
 
 
 def task1(rob: IRobobo):
@@ -302,7 +304,20 @@ def task1(rob: IRobobo):
     
     model.save(str(RESULT_DIR / 'models/run_1'))
 
-def task2(rob: IRobobo):
+
+def validate_task1(rob: IRobobo):
+    model = DDPG.load(str(RESULT_DIR / 'models/run_2c')) 
+
+    env = GymEnv()
+    obs = env.reset()[0]
+    while True:
+        action, states = model.predict(obs)
+        observation, reward, terminated, _, info = env.step(action)
+
+
+def task2(rob: IRobobo, model_name=None):
+    if model_name is None:
+        raise ValueError("model_name must be provided")
 
     model = DDPG(
         policy = 'MlpPolicy', 
@@ -328,23 +343,22 @@ def task2(rob: IRobobo):
         _init_setup_model=True
     )
 
-    model.learn(total_timesteps=5000, log_interval=10, progress_bar=True)
+    model.learn(total_timesteps=5000, log_interval=10, progress_bar=True) # change back to 5000
     
-    # model.save(str(RESULT_DIR / 'models/run_1'))
+    model.save(str(RESULT_DIR / f'models/{model_name}'))
 
 
+def task2_demonstrate(rob: IRobobo, steps=100000, model_name=None):
+    if model_name is None:
+        raise ValueError("model_name must be provided")
 
-def validate_task1(rob: IRobobo):
-    model = DDPG.load(str(RESULT_DIR / 'models/run_2c')) 
-
-    env = GymEnv()
+    model = DDPG.load(str(RESULT_DIR / f'models/{model_name}')) 
+    env = GymEnv(rob=rob, max_steps=1000)
     obs = env.reset()[0]
-    while True:
+
+    for _ in range(steps):
         action, states = model.predict(obs)
         observation, reward, terminated, _, info = env.step(action)
-
-
-
 
 
 def calibrate(rob: IRobobo):
