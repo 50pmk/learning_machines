@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # replace localhost with the port you see on the smartphone
 # export ROS_MASTER_URI="http://10.15.2.184:11311"
-export ROS_MASTER_URI="http://10.15.3.239:11311"
+export ROS_MASTER_URI="http://10.15.2.184:11311"
 # export ROS_MASTER_URI="http://localhost:11311"
 # lab "http://10.15.2.184.62:11311"
 # thuis "http://10.15.2.184:11311"
@@ -13,6 +13,6 @@ export ROS_MASTER_URI="http://10.15.3.239:11311"
 #    hostname -I | awk '{print $1}'
 # macOS:
 #    ipconfig getifaddr en1
-export COPPELIA_SIM_IP="192.168.1.156"
+export COPPELIA_SIM_IP="10.15.3.108"
 # lab "10.15.3.108"
 # thuis "192.168.1.156"

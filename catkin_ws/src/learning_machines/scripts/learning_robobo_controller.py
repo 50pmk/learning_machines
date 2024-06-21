@@ -19,5 +19,5 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"{sys.argv[1]} is not a valid argument.")
 
-    task2(rob, model_name='speedy')
-    # task2_demonstrate(rob, model_name='cherrypie')
+    # task2(rob, model_name='speedy')
+    task2_demonstrate(rob, model_name='chocolate')

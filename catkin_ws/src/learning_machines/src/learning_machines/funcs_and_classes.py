@@ -86,8 +86,12 @@ class GymEnv(gym.Env):
         # Convert the BGR image to HSV format
         hsv_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
         # Define HSV range for green color
-        lower_green = np.array([15, 150, 200])
-        upper_green = np.array([75, 255, 250]) # adjusted 
+        if isinstance(self.rob, SimulationRobobo):
+            lower_green = np.array([15, 150, 200])
+            upper_green = np.array([75, 255, 250]) 
+        else:
+            lower_green = np.array([45, 70, 70])
+            upper_green = np.array([85, 255, 250]) 
         # Threshold the HSV image to get only green colors
         mask = cv2.inRange(hsv_image, lower_green, upper_green)
 
@@ -125,7 +129,7 @@ class GymEnv(gym.Env):
         # Calculate the wheel speeds
         left_speed = v_min + (v_max - v_min) * (1 - action)
         right_speed = v_min + (v_max - v_min) * action
-        self.rob.move_blocking(left_speed[0], right_speed[0], 100)
+        self.rob.move_blocking(int(left_speed[0]), int(right_speed[0]), 100)
 
         # # Alternative quicker speeds, trains longer, runs into wall issues
         # if action < 0.5:
@@ -203,9 +207,10 @@ class GymEnv(gym.Env):
             pass 
 
         # if food is collected 
-        if self.rob.nr_food_collected() > self.food_count: 
-            reward += 50
-            print('found food!')
+        if isinstance(self.rob, SimulationRobobo):
+            if self.rob.nr_food_collected() > self.food_count: 
+                reward += 50
+                print('found food!')
 
         return reward
     
@@ -276,7 +281,8 @@ class GymEnv(gym.Env):
         # tracking metrics metrics 
         self.total_steps += 1 
         self.cum_reward += reward
-        self.food_count = self.rob.nr_food_collected()
+        if isinstance(self.rob, SimulationRobobo):
+            self.food_count = self.rob.nr_food_collected()
         self.step_count += 1        
 
         # Determine if the episode is terminated based on the number of steps
@@ -374,7 +380,7 @@ def task2_demonstrate(rob: IRobobo, steps=100000, model_name=None):
         raise ValueError("model_name must be provided")
 
     model = DDPG.load(str(RESULT_DIR / f'models/{model_name}')) 
-    env = GymEnv(rob=rob, max_steps=1000)
+    env = GymEnv(rob=rob, max_steps=1000, model_name=model_name)
     obs = env.reset()[0]
 
     for _ in range(steps):
