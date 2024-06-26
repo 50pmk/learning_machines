@@ -61,11 +61,6 @@ class GymEnv(gym.Env):
         self.log_df = pd.DataFrame(columns=['episode reward', 'total food'])
         print(self.log_df)
 
-        # # TODO - remove later 
-        # with open(str(RESULT_DIR / 'log/cum_reward.txt'), 'w') as f:
-        #     f.write(f'{self.cum_reward}\n')
-
-
     def _set_camera(self, horizontal_pan=180, vertical_tilt=67):
         print("Setting Camera: ")
         self.rob.set_phone_pan_blocking(horizontal_pan, 100) 
@@ -76,40 +71,62 @@ class GymEnv(gym.Env):
         print("vertical tilt:", self.rob.read_phone_tilt())
         
 
-    def _process_front_camera(self, bgr_image, save_images=False):
+    def _process_front_camera(self, bgr_image, mask_color='red', save_images=False):
         # Get the image from the front camera
         # Ensure that the image is retrieved correctly and is in BGR format initially
         if bgr_image is None:
             print("No image received from the camera.")
             return False 
-        
+    
         # Convert the BGR image to HSV format
         hsv_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
-        # Define HSV range for green color
-        if isinstance(self.rob, SimulationRobobo):
-            lower_green = np.array([15, 150, 200])
-            upper_green = np.array([75, 255, 250]) 
-        else:
-            lower_green = np.array([45, 70, 70])
-            upper_green = np.array([85, 255, 250]) 
-        # Threshold the HSV image to get only green colors
-        mask = cv2.inRange(hsv_image, lower_green, upper_green)
+
+        if mask_color == 'green':
+            # Define HSV range for green color
+            if isinstance(self.rob, SimulationRobobo):
+                lower_green = np.array([15, 150, 200])
+                upper_green = np.array([75, 255, 250]) 
+            else:
+                lower_green = np.array([45, 70, 70])
+                upper_green = np.array([85, 255, 250]) 
+
+            # Threshold the HSV image to get only green colors
+            mask = cv2.inRange(hsv_image, lower_green, upper_green)
+
+        elif mask_color == 'red':
+            # Define HSV range for red color - NOTE: red needs 2 sets of HSV ranges 
+            if isinstance(self.rob, SimulationRobobo):
+                # Define HSV range for red color
+                lower_red1 = np.array([0, 100, 100])
+                upper_red1 = np.array([10, 255, 255])
+
+                lower_red2 = np.array([170, 100, 100])
+                upper_red2 = np.array([180, 255, 255])
+            else:
+                # TODO - define HSV ranges for hardware
+                pass 
+
+            # Threshold the HSV image to get only red colors
+            mask1 = cv2.inRange(hsv_image, lower_red1, upper_red1)
+            mask2 = cv2.inRange(hsv_image, lower_red2, upper_red2)
+            # Combine both masks
+            mask = cv2.bitwise_or(mask1, mask2)
 
         # visualizations
         if save_images:
-            cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_{self.step_count}.png'), bgr_image)
-            cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_mask_{self.step_count}.png'), mask)
+            cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_{self.total_steps}.png'), bgr_image)
+            cv2.imwrite(str(FIGRURES_DIR / f'sim_camera_mask_{mask_color}_{self.total_steps}.png'), mask)
 
-        # Calculate the proportion of green in the image
-        greenVal = float(np.sum(mask > 0)) / float(mask.size)
-        # Determine if green is detected
-        if greenVal > 0.01:  # Adjust threshold as needed
-            green = 1
+        # Calculate the proportion of color in the image
+        color_val = float(np.sum(mask > 0)) / float(mask.size)
+        # Determine if color is detected
+        if color_val > 0.01:  # Adjust threshold as needed
+            color = 1
         else:
-            green = 0
+            color = 0
 
-        return green 
-        # return greenVal 
+        return color 
+        # return color_val
     
 
     def _normalize_irs(self, irs) -> np.array:
@@ -143,6 +160,7 @@ class GymEnv(gym.Env):
         
     def _get_obs(self):
         # -- irs component -- 
+        # TODO - change to return only the state (0,1)
         obs_irs = self.rob.read_irs()
         obs_irs = self._normalize_irs(obs_irs)
 
@@ -153,17 +171,20 @@ class GymEnv(gym.Env):
         width = bgr_image.shape[1] // 3
         left_image, middle_image, right_image  = bgr_image[:, :width, :], bgr_image[:, width:2*width, :], bgr_image[:, 2*width:, :]
 
-        left = self._process_front_camera(left_image)
-        middle = self._process_front_camera(middle_image)
-        right = self._process_front_camera(right_image)
- 
-        # visualization 
-        # _, _ = self._process_front_camera(bgr_image, save_images=True)
+        # get camera observations 
+        obs_camera = {}
+        for color in ['red', 'green']: 
+            left = self._process_front_camera(left_image, mask_color=color)
+            middle = self._process_front_camera(middle_image, mask_color=color)
+            right = self._process_front_camera(right_image, mask_color=color)
+    
+            # visualization 
+            # _ = self._process_front_camera(bgr_image, mask_color=color, save_images=True)
 
-        # returns presence or percentage of pixels covered by the green mask 
-        obs_camera = np.array([left, middle, right])
+            # returns presence or percentage of pixels covered by the color mask 
+            obs_camera[color] = np.array([left, middle, right])
 
-        return obs_irs, obs_camera 
+        return obs_irs, obs_camera['red'], obs_camera['green']
 
 
     def _get_info(self):
@@ -177,13 +198,22 @@ class GymEnv(gym.Env):
 
     def _get_reward(self, observation, action): 
 
-        print('observation:', observation)
-        print('action:', action)
-
         l, m, r = observation
 
         reward = 0 
 
+        '''
+        idea: 
+            - Create a new state ('has_package') use avg of front, right & left irs sensors? -> test 
+            - use same movement pattern for both red & green 
+            - if not has_package, then only use the red masks as states  
+                - give big reward when 'getting the package' 
+            - if has_package, then only use the green masks as states
+                - give big reward for 'getting to base' 
+
+            - Also, shorten the front action range, so that it doesn't sway too much?
+        
+        '''
         # if object detected only on left side
         if l == 1 and not m == 1: 
             # if robot turns left 
@@ -231,8 +261,9 @@ class GymEnv(gym.Env):
 
         # set camera position at the start 
         self._set_camera(horizontal_pan=180, vertical_tilt=90)
-        obs_irs, obs_camera = self._get_obs()
-        observation = obs_camera
+        obs_irs, obs_camera_red, obs_camera_green = self._get_obs()
+        # TODO: change depending on how we construct state & reward 
+        observation = obs_camera_red
 
         info = self._get_info()
 
@@ -266,17 +297,19 @@ class GymEnv(gym.Env):
 
         # Take the action
         self._move(action)
+        # self.rob.move_blocking(-50, -50, 100) # TODO remove 
         # get state information 
-        obs_irs, obs_camera = self._get_obs()
+        obs_irs, obs_camera_red, obs_camera_green = self._get_obs()
 
-        # observation is the bool states of each camera green mask: left, middle, right 
-        observation = obs_camera
+        # observation is the bool states of each camera mask: left, middle, right 
+        # TODO: change depending on how we construct state & reward 
+        observation = obs_camera_red
 
         reward = self._get_reward(observation, action)
             
-        print('observation:', observation)
-        print('action:', action)
-        print('reward:', reward)
+        # print('observation:', observation)
+        # print('action:', action)
+        # print('reward:', reward)
 
         # tracking metrics metrics 
         self.total_steps += 1 
@@ -364,7 +397,7 @@ def task2(rob: IRobobo, model_name=None):
         _init_setup_model=True
     )
 
-    model.learn(total_timesteps=4000, log_interval=10, progress_bar=True) # change back to 5000
+    model.learn(total_timesteps=10, log_interval=10, progress_bar=True) # change back to 5000
     
     file_path = RESULT_DIR / f'models/{model_name}'
 
