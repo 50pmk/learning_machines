@@ -44,8 +44,10 @@ class GymEnv(gym.Env):
         self.action_space = gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
 
         # Define observation space 
-        # NOTE: currently state space is 3 states: left, middle & right camera mask percentages 
-        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(3,), dtype=np.float32)
+        # NOTE: currently state space is 4 states: left, middle & right camera mask percentages 
+        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(4,), dtype=np.float32)
+
+        self.package_found = False
 
         # Initialise for logging
         self.log_irsdata = []
@@ -59,7 +61,6 @@ class GymEnv(gym.Env):
 
         # --- LOGGING ---
         self.log_df = pd.DataFrame(columns=['episode reward', 'total food'])
-        print(self.log_df)
 
     def _set_camera(self, horizontal_pan=180, vertical_tilt=67):
         print("Setting Camera: ")
@@ -120,7 +121,7 @@ class GymEnv(gym.Env):
         # Calculate the proportion of color in the image
         color_val = float(np.sum(mask > 0)) / float(mask.size)
         # Determine if color is detected
-        if color_val > 0.01:  # Adjust threshold as needed
+        if color_val > 0.001:  # Adjust threshold as needed
             color = 1
         else:
             color = 0
@@ -146,7 +147,7 @@ class GymEnv(gym.Env):
         # Calculate the wheel speeds
         left_speed = v_min + (v_max - v_min) * (1 - action)
         right_speed = v_min + (v_max - v_min) * action
-        self.rob.move_blocking(int(left_speed[0]), int(right_speed[0]), 100)
+        self.rob.move_blocking(int(left_speed[0]), int(right_speed[0]), 200)
 
         # # Alternative quicker speeds, trains longer, runs into wall issues
         # if action < 0.5:
@@ -160,9 +161,11 @@ class GymEnv(gym.Env):
         
     def _get_obs(self):
         # -- irs component -- 
-        # TODO - change to return only the state (0,1)
         obs_irs = self.rob.read_irs()
         obs_irs = self._normalize_irs(obs_irs)
+        if obs_irs[4] > 0.8:
+            obs_irs = 1
+        else: obs_irs = 0
 
         # -- camera component -- 
         bgr_image = self.rob.get_image_front()
@@ -179,12 +182,18 @@ class GymEnv(gym.Env):
             right = self._process_front_camera(right_image, mask_color=color)
     
             # visualization 
-            # _ = self._process_front_camera(bgr_image, mask_color=color, save_images=True)
+            _ = self._process_front_camera(bgr_image, mask_color=color, save_images=True)
 
             # returns presence or percentage of pixels covered by the color mask 
             obs_camera[color] = np.array([left, middle, right])
 
-        return obs_irs, obs_camera['red'], obs_camera['green']
+
+        if obs_irs == 0: 
+            return np.append(obs_camera['red'], obs_irs)
+        else: 
+            return np.append(obs_camera['green'], obs_irs)
+
+        # return obs_irs, obs_camera['red'], obs_camera['green']
 
 
     def _get_info(self):
@@ -198,49 +207,73 @@ class GymEnv(gym.Env):
 
     def _get_reward(self, observation, action): 
 
-        l, m, r = observation
+        l, m, r, has_package = observation
 
-        reward = 0 
+        reward = 0
 
-        '''
-        idea: 
-            - Create a new state ('has_package') use avg of front, right & left irs sensors? -> test 
-            - use same movement pattern for both red & green 
-            - if not has_package, then only use the red masks as states  
-                - give big reward when 'getting the package' 
-            - if has_package, then only use the green masks as states
-                - give big reward for 'getting to base' 
+        if not has_package: # only red states are given to l, m, r
 
-            - Also, shorten the front action range, so that it doesn't sway too much?
-        
-        '''
-        # if object detected only on left side
-        if l == 1 and not m == 1: 
-            # if robot turns left 
-            if action > 0.5: 
-                reward += 1 
+            # if object detected only on left side
+            if l == 1 and not m == 1: 
+                # if robot turns left 
+                if action > 0.5: 
+                    reward += 1 
 
-        # if object detected in middle 
-        elif m == 1:
-            # if robot stays relatively straight 
-            if 0.45 < action < 0.55:
-                reward += 10
-        
-        # if object detected only on right side
-        elif r == 1 and not m == 1:
-            # if robot turns right 
-            if action < 0.5: 
-                reward += 1
+            # if object detected in middle 
+            elif m == 1:
+                # if robot stays relatively straight 
+                if 0.45 < action < 0.55:
+                    reward += 10
+            
+            # if object detected only on right side
+            elif r == 1 and not m == 1:
+                # if robot turns right 
+                if action < 0.5: 
+                    reward += 1
 
-        else: 
-            # promote spinning to detect objects? -> NOTE: seems to do that on it's own 
-            pass 
+            else: 
+                # promote spinning to detect objects? -> NOTE: seems to do that on it's own 
+                pass 
 
-        # if food is collected 
-        if isinstance(self.rob, SimulationRobobo):
-            if self.rob.nr_food_collected() > self.food_count: 
-                reward += 50
-                print('found food!')
+        elif has_package: # only green states are given to l, m, r
+
+            # give big reward for finding package 
+            if not self.package_found: 
+                reward += 50 
+                print('found package!')
+                self.package_found = True 
+
+
+            # if object detected only on left side
+            if l == 1 and not m == 1: 
+                # if robot turns left 
+                if action > 0.5: 
+                    reward += 2 
+
+            # if object detected in middle 
+            elif m == 1:
+                # if robot stays relatively straight 
+                if 0.45 < action < 0.55:
+                    reward += 20
+            
+            # if object detected only on right side
+            elif r == 1 and not m == 1:
+                # if robot turns right 
+                if action < 0.5: 
+                    reward += 2
+
+            else: 
+                # promote turning to detect base 
+                if 0.2 < action < 0.4:
+                    reward += 1
+
+
+        # # if robot has package and hits base, give big reward 
+        # if isinstance(self.rob, SimulationRobobo):
+        #     # TODO: check if this food count works with the green base?? 
+        #     if self.rob.base_detects_food: 
+        #         reward += 50
+        #         print('delivered package!')
 
         return reward
     
@@ -260,10 +293,10 @@ class GymEnv(gym.Env):
             pass
 
         # set camera position at the start 
-        self._set_camera(horizontal_pan=180, vertical_tilt=90)
-        obs_irs, obs_camera_red, obs_camera_green = self._get_obs()
+        self._set_camera(horizontal_pan=180, vertical_tilt=109)
+
         # TODO: change depending on how we construct state & reward 
-        observation = obs_camera_red
+        observation = self._get_obs()
 
         info = self._get_info()
 
@@ -285,6 +318,7 @@ class GymEnv(gym.Env):
         # re-initialize
         self.step_count = 0
         self.cum_reward = 0 
+        self.package_found = False 
 
         print()
 
@@ -297,19 +331,17 @@ class GymEnv(gym.Env):
 
         # Take the action
         self._move(action)
-        # self.rob.move_blocking(-50, -50, 100) # TODO remove 
-        # get state information 
-        obs_irs, obs_camera_red, obs_camera_green = self._get_obs()
+        # self.rob.move_blocking(50, 50, 100) # TODO remove 
 
-        # observation is the bool states of each camera mask: left, middle, right 
-        # TODO: change depending on how we construct state & reward 
-        observation = obs_camera_red
+        # observation is the bool states of each camera mask: left, middle, right, has_package 
+        observation = self._get_obs()
 
         reward = self._get_reward(observation, action)
             
-        # print('observation:', observation)
-        # print('action:', action)
-        # print('reward:', reward)
+        print('timestamp: ', self.total_steps)
+        print('observation:', observation)
+        print('action:', action)
+        print('reward:', reward)
 
         # tracking metrics metrics 
         self.total_steps += 1 
@@ -320,6 +352,10 @@ class GymEnv(gym.Env):
 
         # Determine if the episode is terminated based on the number of steps
         terminated = self.step_count >= self.max_steps
+        # terminate if robot doesn't have package after 50 steps 
+        if self.step_count > 49 and observation[-1] == 0:
+            terminated = True  
+
 
         # --- LOGGING ---
 
@@ -334,7 +370,7 @@ def task1(rob: IRobobo):
         env = GymEnv(rob=rob, max_steps=100), 
         learning_rate=0.0001, 
         buffer_size=50000, 
-        learning_starts=100, 
+        learning_starts=50, # TODO change back 
         batch_size=64, 
         tau=0.005, 
         gamma=0.99, 
@@ -397,7 +433,7 @@ def task2(rob: IRobobo, model_name=None):
         _init_setup_model=True
     )
 
-    model.learn(total_timesteps=10, log_interval=10, progress_bar=True) # change back to 5000
+    model.learn(total_timesteps=2000, log_interval=10, progress_bar=True) # change back to 5000
     
     file_path = RESULT_DIR / f'models/{model_name}'
 
